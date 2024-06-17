@@ -1,251 +1,89 @@
-def get_nc_ts_card():
-      card = {
-        "contentType": "application/vnd.microsoft.card.adaptive",
-        "content": {
-                      "type": "AdaptiveCard",
-                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                      "version": "1.3",
-                      "body": [
-                          {
-                              "type": "Container",
-                              "items": [
-                                  {
-                                      "type": "TextBlock",
-                                      "text": "NC Time Slot",
-                                      "size": "Large",
-                                      "color": "Accent",
-                                      "weight": "Bolder",
-                                      "wrap": True
-                                  },
-                                  {
-                                      "type": "Input.Time",
-                                      "label": "Start Time (24hrs format):",
-                                      "isRequired": True,
-                                      "min": "11:00",
-                                      "max": "19:00",
-                                      "id": "start_time",
-                                      "errorMessage": "Time Missing / Not in range 11:00-19:00"
-                                  },
-                                  {
-                                      "type": "Input.Time",
-                                      "label": "End Time (24hrs format):",
-                                      "isRequired": True,
-                                      "min": "11:00",
-                                      "max": "19:00",
-                                      "id": "end_time",
-                                      "errorMessage": "Time Missing / Not in range 11:00-19:00"
-                                  },
-                                  {
-                                      "type": "Input.Text",
-                                      "placeholder": "Placeholder text",
-                                      "label": "Reason:",
-                                      "isRequired": True,
-                                      "id": "reason",
-                                      "errorMessage": "Reason Missing!!!"
-                                  },
-                                  {
-                                      "type": "ColumnSet",
-                                      "columns": [
-                                          {
-                                              "type": "Column",
-                                              "width": "stretch",
-                                              "items": [
-                                                  {
-                                                      "type": "ActionSet",
-                                                      "actions": [
-                                                          {
-                                                              "type": "Action.Submit",
-                                                              "title": "Submit",
-                                                              "style": "positive",
-                                                              "associatedInputs": "auto",
-                                                              "data": {
-                                                                    "callback_keyword": "mnc_callback"
-                                                                }
-                                                          }
-                                                      ]
-                                                  }
-                                              ]
-                                          },
-                                          {
-                                              "type": "Column",
-                                              "width": "stretch",
-                                              "items": [
-                                                  {
-                                                      "type": "ActionSet",
-                                                      "actions": [
-                                                          {
-                                                              "type": "Action.Submit",
-                                                              "title": "Exit",
-                                                              "style": "destructive",
-                                                              "associatedInputs": "None",
-                                                              "data": {
-                                                                    "callback_keyword": "mistake_callback"
-                                                                }
-                                                          }
-                                                      ],
-                                                      "horizontalAlignment": "Right"
-                                                  }
-                                              ]
-                                          }
-                                      ],
-                                      "spacing": "Medium",
-                                      "separator": True
-                                  }
-                              ]
-                          }
-                      ]
-        }
-      }
-      return card
 
+def get_pretty_queue() :
+    print_queue_msg = ''
 
+    for key, queue_name in queue_names_dict.items():
+        queue = r_obj.get_queue(key)
+        case_count = r_obj.get_eng_case_count(key)
 
+        print_queue_msg += f'{queue_name}: '
+        # eng_idx = -1
+        for eng_idx, cec, c_count in zip(range(len(queue)), queue, case_count):
+            # eng_idx += 1
+            cec_p = str(cec)
 
-
-
-
-
-
-class NCTime(Command):
-    def __init__(self):
-        super().__init__(
-            command_keyword="mnc"
-        )
-    
-    def execute(self, message, attachment_actions):
-        
-        response = Response()
-        response.text = ' '
-        response.attachments = get_nc_ts_card()
-        return response
-
-class NCTimeCallback(Command):
-    def __init__(self):
-        super().__init__(
-            command_keyword="mnc_callback",
-            delete_previous_message=True
-        )
-
-    def execute(self, message, attachment_actions):
-        
-        response = Response()
-        try :
-            print("check")
-            start_time, end_time, reason = attachment_actions['inputs']['start_time'], attachment_actions['inputs']['end_time'], attachment_actions['inputs']['reason']
-            cecid = get_user_cecid_from_payload(attachment_actions['personId'])
-
-            eng_dict = r_obj.get_all_engs()
-
-            if (cecid in eng_dict.keys()) :
-                queue_name = eng_dict[cecid].get("queue_name")
-                idx = eng_dict[cecid].get('idx')
-                r_obj.update_eng_availability(queue_name, idx, 15)
-                r_obj.db.execute_command(f"SET {cecid}_NC {start_time}_{end_time}")
+            if r_obj.db.exists(f'{cec_p}_on_call') :
+                cec_p = '*' + cec_p
             
-            response.text = f"{cecid} NC from {start_time} to {end_time} -> {reason}"
-        except Exception as error :
-            raise Exception(f"Some error {error}")
-        return response
 
-
-
-
-
-
-
-
-/////////// helper
-
-
-
-def eng_call_case_availability(eng_idx: int, queue_name: str):
-
-    """ 
-        This function is used to check if the given engineer is available
-        to pick call cases i.e the engineer is not on NC, On Call, or has a Pre-Scheduled
-        Call
-    """
-    
-    cec_id = r_obj.get_idx_eng(queue_name, eng_idx)
-
-    if(not r_obj.check_eng_on_call(cec_id)):
-
-        eng_available_state = r_obj.get_idx_eng_availability(eng_idx, queue_name)
-
-        if(eng_available_state != '0'):
+            eng_available_state = r_obj.get_idx_eng_availability(eng_idx, key)
             match eng_available_state:
-                
+
+                          
                 case '1':
                     ## Full Day NC
-                    return False
+                    cec_p += '(NC)'
+                
+                case '2' :                
+                    cec_p += '(OQ)'
                 
                 case '3':
                     ## First-Half NC
-                    current_time = date.now()
-                    end_time = date.now().replace(hour = 14, minute = 30, second = 0, microsecond = 0)
-
-                    if(current_time < end_time):
-                        return False
-                    return True
+                    cec_p += '(FH-NC, '
                 
                 case '4':
-
                     ## Second Half NC
-                    
-                    current_time = date.now()
-                    start_time = date.now().replace(hour = 14, minute = 30, second = 0, microsecond = 0)
-
-                    if(current_time > start_time):
-                        return False
-                    return True
+                    cec_p += '(SH-NC, '
+                case '5' :
+                    cec_p += '(FH-OQ, '
+                
+                case '6' :
+                    cec_p += '(SH-OQ, '
                 
                 case '7':
-                    
                     ## FH-NC, SH_DND
+                    cec_p += '(FH-NC/SH-DND)'
+                case '8':
+                    ## FH-NC, SH_DND
+                    cec_p += '(FH-HD, '
+                case '9':
+                    ## FH-NC, SH_DND
+                    cec_p += '(SH-HD, '
+                case '10':
+                    cec_p += '(FH-ESC, '
+                case '11':
+                    cec_p += '(SH-ESC, '
+                case '12':
+                    cec_p += '(QM, '
+            
+            nc_content = r_obj.get_nc_time(cec)
+            if(nc_content != None):
+                if(cec_p[-2] == ','):
+                    cec_p += 'NC-{' + nc_content + '}, '
+                else:
+                    cec_p+= '(NC-{' + nc_content + '}, '
 
-                    current_time = date.now()
-                    end_time = date.now().replace(hour = 14, minute = 30, second = 0, microsecond = 0)
+            s_calls = r_obj.get_all_scheduled_calls(cec)
+            nc_content = r_obj.get_nc_time(cec)
 
-                    if(current_time < end_time):
-                        return False
-                    return True
-                
-                case '15':
-
-                    ## For NC specific time
-                    current_time = date.now()
-                    start_str, end_str = r_obj.get_nc_time(cec_id)
-                    start_time = date.now().replace(hour = int(start_str.split(':')[0]), minute = int(start_str.split(':')[1]), second = 0, microsecond = 0)
-                    end_time = date.now().replace(hour = int(end_str.split(':')[0]), minute = int(end_str.split(':')[1]), second = 0, microsecond = 0)
-                    print("check 202")
-                    if current_time >= start_time and current_time <= end_time :
-                        print("tick")
-                        return False
-                    return True
-                
-        else:
-            ## Availability state is 0, chec if engineer has pre-scheduled calls
-
-            prescheduled_call_list = r_obj.get_all_scheduled_calls(cec_id)
-            current_time = date.now()
-
-            if(len(prescheduled_call_list)>0):
-                for time in prescheduled_call_list:
-                    hr,min = map(int, time.split(':'))
-
-                    scheduled_call_time = date.now().replace(hour = hr, minute = min, second = 0, microsecond = 0)
-                    buffer_start_time = scheduled_call_time - timedelta(minutes=90)
-
-                    if(buffer_start_time < current_time < scheduled_call_time):
-                        return False
-            return True
-    else:
-        return False 
+            if len(s_calls) > 0 :
+                if eng_available_state not in ['3', '4', '5', '6', '8', '9', '10', '11', '12'] and not nc_content :
+                    cec_p = cec_p + '('
+                for sc in s_calls :
+                    cec_p += str(sc) + ', '
+                cec_p = cec_p[:-2]
+                cec_p += ')'
+            elif eng_available_state in ['3', '4', '5', '6', '8', '9', '10', '11', '12'] :
+                cec_p = cec_p[:-2]
+                cec_p += ')'
 
 
+            print_queue_msg += f'{cec_p}:{c_count} '
+        
+        print_queue_msg.strip()
+        print_queue_msg += '\n\n'
 
-
-
+    return print_queue_msg
 
 
 
@@ -253,7 +91,21 @@ def eng_call_case_availability(eng_idx: int, queue_name: str):
 
 
 
+def check_specific_time_nc_marked(cec_id: str) :
+    nc_content = r_obj.get_nc_time(cec_id)
+    if nc_content != None :
+        start_str, end_str = nc_content.split('-')[0], nc_content.split('-')[1]
+        start_time = date.now().replace(hour = int(start_str.split(':')[0]), minute = int(start_str.split(':')[1]), second = 0, microsecond = 0)
+        end_time = date.now().replace(hour = int(end_str.split(':')[0]), minute = int(end_str.split(':')[1]), second = 0, microsecond = 0)
+        current_time = date.now()
+        if current_time >= start_time and current_time <= end_time :
+            return False
+    return True
 
 
-'mnc': NCTime(),
-'mnc_callback': NCTimeCallback()
+
+
+
+        if check_specific_time_nc_marked(cec_id) == False :
+            return False
+
