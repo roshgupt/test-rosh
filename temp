@@ -1,1 +1,259 @@
+def get_nc_ts_card():
+      card = {
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+                      "type": "AdaptiveCard",
+                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                      "version": "1.3",
+                      "body": [
+                          {
+                              "type": "Container",
+                              "items": [
+                                  {
+                                      "type": "TextBlock",
+                                      "text": "NC Time Slot",
+                                      "size": "Large",
+                                      "color": "Accent",
+                                      "weight": "Bolder",
+                                      "wrap": True
+                                  },
+                                  {
+                                      "type": "Input.Time",
+                                      "label": "Start Time (24hrs format):",
+                                      "isRequired": True,
+                                      "min": "11:00",
+                                      "max": "19:00",
+                                      "id": "start_time",
+                                      "errorMessage": "Time Missing / Not in range 11:00-19:00"
+                                  },
+                                  {
+                                      "type": "Input.Time",
+                                      "label": "End Time (24hrs format):",
+                                      "isRequired": True,
+                                      "min": "11:00",
+                                      "max": "19:00",
+                                      "id": "end_time",
+                                      "errorMessage": "Time Missing / Not in range 11:00-19:00"
+                                  },
+                                  {
+                                      "type": "Input.Text",
+                                      "placeholder": "Placeholder text",
+                                      "label": "Reason:",
+                                      "isRequired": True,
+                                      "id": "reason",
+                                      "errorMessage": "Reason Missing!!!"
+                                  },
+                                  {
+                                      "type": "ColumnSet",
+                                      "columns": [
+                                          {
+                                              "type": "Column",
+                                              "width": "stretch",
+                                              "items": [
+                                                  {
+                                                      "type": "ActionSet",
+                                                      "actions": [
+                                                          {
+                                                              "type": "Action.Submit",
+                                                              "title": "Submit",
+                                                              "style": "positive",
+                                                              "associatedInputs": "auto",
+                                                              "data": {
+                                                                    "callback_keyword": "mnc_callback"
+                                                                }
+                                                          }
+                                                      ]
+                                                  }
+                                              ]
+                                          },
+                                          {
+                                              "type": "Column",
+                                              "width": "stretch",
+                                              "items": [
+                                                  {
+                                                      "type": "ActionSet",
+                                                      "actions": [
+                                                          {
+                                                              "type": "Action.Submit",
+                                                              "title": "Exit",
+                                                              "style": "destructive",
+                                                              "associatedInputs": "None",
+                                                              "data": {
+                                                                    "callback_keyword": "mistake_callback"
+                                                                }
+                                                          }
+                                                      ],
+                                                      "horizontalAlignment": "Right"
+                                                  }
+                                              ]
+                                          }
+                                      ],
+                                      "spacing": "Medium",
+                                      "separator": True
+                                  }
+                              ]
+                          }
+                      ]
+        }
+      }
+      return card
 
+
+
+
+
+
+
+
+
+class NCTime(Command):
+    def __init__(self):
+        super().__init__(
+            command_keyword="mnc"
+        )
+    
+    def execute(self, message, attachment_actions):
+        
+        response = Response()
+        response.text = ' '
+        response.attachments = get_nc_ts_card()
+        return response
+
+class NCTimeCallback(Command):
+    def __init__(self):
+        super().__init__(
+            command_keyword="mnc_callback",
+            delete_previous_message=True
+        )
+
+    def execute(self, message, attachment_actions):
+        
+        response = Response()
+        try :
+            print("check")
+            start_time, end_time, reason = attachment_actions['inputs']['start_time'], attachment_actions['inputs']['end_time'], attachment_actions['inputs']['reason']
+            cecid = get_user_cecid_from_payload(attachment_actions['personId'])
+
+            eng_dict = r_obj.get_all_engs()
+
+            if (cecid in eng_dict.keys()) :
+                queue_name = eng_dict[cecid].get("queue_name")
+                idx = eng_dict[cecid].get('idx')
+                r_obj.update_eng_availability(queue_name, idx, 15)
+                r_obj.db.execute_command(f"SET {cecid}_NC {start_time}_{end_time}")
+            
+            response.text = f"{cecid} NC from {start_time} to {end_time} -> {reason}"
+        except Exception as error :
+            raise Exception(f"Some error {error}")
+        return response
+
+
+
+
+
+
+
+
+/////////// helper
+
+
+
+def eng_call_case_availability(eng_idx: int, queue_name: str):
+
+    """ 
+        This function is used to check if the given engineer is available
+        to pick call cases i.e the engineer is not on NC, On Call, or has a Pre-Scheduled
+        Call
+    """
+    
+    cec_id = r_obj.get_idx_eng(queue_name, eng_idx)
+
+    if(not r_obj.check_eng_on_call(cec_id)):
+
+        eng_available_state = r_obj.get_idx_eng_availability(eng_idx, queue_name)
+
+        if(eng_available_state != '0'):
+            match eng_available_state:
+                
+                case '1':
+                    ## Full Day NC
+                    return False
+                
+                case '3':
+                    ## First-Half NC
+                    current_time = date.now()
+                    end_time = date.now().replace(hour = 14, minute = 30, second = 0, microsecond = 0)
+
+                    if(current_time < end_time):
+                        return False
+                    return True
+                
+                case '4':
+
+                    ## Second Half NC
+                    
+                    current_time = date.now()
+                    start_time = date.now().replace(hour = 14, minute = 30, second = 0, microsecond = 0)
+
+                    if(current_time > start_time):
+                        return False
+                    return True
+                
+                case '7':
+                    
+                    ## FH-NC, SH_DND
+
+                    current_time = date.now()
+                    end_time = date.now().replace(hour = 14, minute = 30, second = 0, microsecond = 0)
+
+                    if(current_time < end_time):
+                        return False
+                    return True
+                
+                case '15':
+
+                    ## For NC specific time
+                    current_time = date.now()
+                    start_str, end_str = r_obj.get_nc_time(cec_id)
+                    start_time = date.now().replace(hour = int(start_str.split(':')[0]), minute = int(start_str.split(':')[1]), second = 0, microsecond = 0)
+                    end_time = date.now().replace(hour = int(end_str.split(':')[0]), minute = int(end_str.split(':')[1]), second = 0, microsecond = 0)
+                    print("check 202")
+                    if current_time >= start_time and current_time <= end_time :
+                        print("tick")
+                        return False
+                    return True
+                
+        else:
+            ## Availability state is 0, chec if engineer has pre-scheduled calls
+
+            prescheduled_call_list = r_obj.get_all_scheduled_calls(cec_id)
+            current_time = date.now()
+
+            if(len(prescheduled_call_list)>0):
+                for time in prescheduled_call_list:
+                    hr,min = map(int, time.split(':'))
+
+                    scheduled_call_time = date.now().replace(hour = hr, minute = min, second = 0, microsecond = 0)
+                    buffer_start_time = scheduled_call_time - timedelta(minutes=90)
+
+                    if(buffer_start_time < current_time < scheduled_call_time):
+                        return False
+            return True
+    else:
+        return False 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'mnc': NCTime(),
+'mnc_callback': NCTimeCallback()
