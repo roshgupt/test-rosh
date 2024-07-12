@@ -1,111 +1,102 @@
 
-def get_pretty_queue() :
-    print_queue_msg = ''
 
-    for key, queue_name in queue_names_dict.items():
-        queue = r_obj.get_queue(key)
-        case_count = r_obj.get_eng_case_count(key)
+    def add_qm(self, cecid) :
+        now = datetime.datetime.now()
+        qm = {
+            'date': str(now.date()),
+            'cecid': cecid
+        }
+        self.qm_coll.insert_one(qm)
+    
+    def add_queue(self, cnt, date) :
+        now = datetime.datetime.now()
+        qm = {
+            'date': str(now.date()),
+            'pretty_queue': get_pretty_queue(),
+            'case_pickers_count': cnt,
+            # 'cecid': 'test'
+        }
+        print(list(self.qm_coll.find({'date': date, 'case_pickers_count': {"$exists": True}})))
+        if len(list(self.qm_coll.find({'date': date, 'case_pickers_count': {"$exists": True}}))) > 0 :
+            self.qm_coll.update_one({'date': date, 'case_pickers_count': {"$exists": True}}, {"$set": {'pretty_queue': get_pretty_queue(), 'case_pickers_count': cnt}})
+        else :
+            self.qm_coll.insert_one(qm)
 
-        print_queue_msg += f'{queue_name}: '
-        # eng_idx = -1
-        for eng_idx, cec, c_count in zip(range(len(queue)), queue, case_count):
-            # eng_idx += 1
-            cec_p = str(cec)
-
-            if r_obj.db.exists(f'{cec_p}_on_call') :
-                cec_p = '*' + cec_p
+    def get_report(self, date=None) :
             
+            if date is None :
 
-            eng_available_state = r_obj.get_idx_eng_availability(eng_idx, key)
-            match eng_available_state:
+                date = str(datetime.datetime.now().date())
 
-                          
-                case '1':
-                    ## Full Day NC
-                    cec_p += '(NC)'
-                
-                case '2' :                
-                    cec_p += '(OQ)'
-                
-                case '3':
-                    ## First-Half NC
-                    cec_p += '(FH-NC, '
-                
-                case '4':
-                    ## Second Half NC
-                    cec_p += '(SH-NC, '
-                case '5' :
-                    cec_p += '(FH-OQ, '
-                
-                case '6' :
-                    cec_p += '(SH-OQ, '
-                
-                case '7':
-                    ## FH-NC, SH_DND
-                    cec_p += '(FH-NC/SH-DND)'
-                case '8':
-                    ## FH-NC, SH_DND
-                    cec_p += '(FH-HD, '
-                case '9':
-                    ## FH-NC, SH_DND
-                    cec_p += '(SH-HD, '
-                case '10':
-                    cec_p += '(FH-ESC, '
-                case '11':
-                    cec_p += '(SH-ESC, '
-                case '12':
-                    cec_p += '(QM, '
-            
-            nc_content = r_obj.get_nc_time(cec)
-            if(nc_content != None):
-                if(cec_p[-2] == ','):
-                    cec_p += 'NC-{' + nc_content + '}, '
-                else:
-                    cec_p+= '(NC-{' + nc_content + '}, '
+                r_obj = redis_DB()
 
-            s_calls = r_obj.get_all_scheduled_calls(cec)
-            nc_content = r_obj.get_nc_time(cec)
+                engs = r_obj.get_all_engs()
+                cnt = 0
+                for eng, val in engs.items() :
+                    eng_availability_state = r_obj.get_idx_eng_availability(val['idx'], val['queue_name'])
+                    if eng_availability_state != '2' and eng_availability_state != '12' :
+                        cnt += 1
+                # print(cnt)
+                self.add_queue(cnt, date)
 
-            if len(s_calls) > 0 :
-                if eng_available_state not in ['3', '4', '5', '6', '8', '9', '10', '11', '12'] and not nc_content :
-                    cec_p = cec_p + '('
-                for sc in s_calls :
-                    cec_p += str(sc) + ', '
-                cec_p = cec_p[:-2]
-                cec_p += ')'
-            elif eng_available_state in ['3', '4', '5', '6', '8', '9', '10', '11', '12'] :
-                cec_p = cec_p[:-2]
-                cec_p += ')'
+                del r_obj
 
 
-            print_queue_msg += f'{cec_p}:{c_count} '
+
+            # nomral_p1 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '1', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} })))
+            # nomral_p2 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '2', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} })))
+            # nomral_p3 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '3', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} })))
+            # nomral_p4 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '4', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} })))
+
+            # collab_p1 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '1', 'type': 'Collab' })))
+            # collab_p2 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '2', 'type': 'Collab' })))
+            # collab_p3 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '3', 'type': 'Collab' })))
+            # collab_p4 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '4', 'type': 'Collab' })))
+
+            # fts_p1 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '1', 'type': 'FTS' })))
+            # fts_p2 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '2', 'type': 'FTS' })))
+            # fts_p3 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '3', 'type': 'FTS' })))
+            # fts_p4 = len(list(self.case_logs_coll.find({ 'date': date, 'sev': '4', 'type': 'FTS' })))
+
+            nomral_p1 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '1', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} })] ))
+            nomral_p2 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '2', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} })] ))
+            nomral_p3 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '3', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} }) ] ))
+            nomral_p4 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '4', 'type': 'Normal', 'assign_type': {"$ne": "bl_assign"} }) ] ))
+
+            collab_p1 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '1', 'type': 'Collab' }) ] ))
+            collab_p2 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '2', 'type': 'Collab' }) ] ))
+            collab_p3 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '3', 'type': 'Collab' }) ] ))
+            collab_p4 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '4', 'type': 'Collab' }) ] ))
+
+            fts_p1 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '1', 'type': 'FTS' }) ] ))
+            fts_p2 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '2', 'type': 'FTS' }) ] ))
+            fts_p3 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '3', 'type': 'FTS' }) ] ))
+            fts_p4 = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date, 'sev': '4', 'type': 'FTS' }) ] ))
+
+            tlist = ["indonesia", "malaysia", "philippines", "singapore", "thailand", "vietnam", "VIET NAM"]
+            asean_countries_list = [ country.upper() for country in tlist]
+            # total_asean = len(list(self.case_logs_coll.find({ 'date': date,  'country': {"$in": asean_countries_list}})))
+            total_asean = len(list(self.case_logs_coll.find({ 'date': date,  'queue': 'asean_queue', 'assign_type': {"$ne": 'bl_assign'}})))
+
+            american_countries = ["UNITED STATES", "ANTIGUA AND BARBUDA","BAHAMAS","BARBADOS", "BELIZE", "CANADA", "COSTA RICA",  "CUBA", "DOMINICA", "DOMINICAN REPUBLIC", "EL SALVADOR", "GRENADA",
+                                    "GUATEMALA", "HAITI", "HONDURAS", "JAMAICA", "MEXICO", "NICARAGUA", "PANAMA", "SAINT KITTS AND NEVIS", "SAINT LUCIA", "SAINT VINCENT AND THE GRENADINES",
+                                    "TRINIDAD AND TOBAGO", "ARGENTINA", "BOLIVIA", "BRAZIL", "CHILE", "COLOMBIA", "ECUADOR", "GUYANA", "PARAGUAY", "PERU", "SURINAME", "URUGUAY", "VENEZUELA"]
+
+            total_us = len(set( [document['sr_no'] for document in self.case_logs_coll.find({ 'date': date , 'country': {"$in": american_countries}}) ] ))
+
+            qm = ''
+            qms = list(self.qm_coll.find({'date': date, 'cecid': {"$exists": True}}))
+            for eqm in qms :
+                q = eqm['cecid']
+                qm += f' {q}'
+
+            return [nomral_p1, nomral_p2, nomral_p3, nomral_p4], [collab_p1, collab_p2, collab_p3, collab_p4], [fts_p1, fts_p2, fts_p3, fts_p4], total_asean, total_us, qm
+    
+    def get_requeue_case_list(self, date=None):
         
-        print_queue_msg.strip()
-        print_queue_msg += '\n\n'
+        if date is None :
+            date = str(datetime.datetime.now().date())
 
-    return print_queue_msg
+        requeue_cases = [document['sr_no'] for document in self.borg_ping_coll.find({ 'date': date, 'Status': 'Requeue' })]
 
-
-
-
-
-
-
-def check_specific_time_nc_marked(cec_id: str) :
-    nc_content = r_obj.get_nc_time(cec_id)
-    if nc_content != None :
-        start_str, end_str = nc_content.split('-')[0], nc_content.split('-')[1]
-        start_time = date.now().replace(hour = int(start_str.split(':')[0]), minute = int(start_str.split(':')[1]), second = 0, microsecond = 0)
-        end_time = date.now().replace(hour = int(end_str.split(':')[0]), minute = int(end_str.split(':')[1]), second = 0, microsecond = 0)
-        current_time = date.now()
-        if current_time >= start_time and current_time <= end_time :
-            return False
-    return True
-
-
-
-
-
-        if check_specific_time_nc_marked(cec_id) == False :
-            return False
-
+        return requeue_cases
